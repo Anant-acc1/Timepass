@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maze Runner - Live Ambient Background</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Fullscreen Canvas -->
+  <canvas id="maze-canvas"></canvas>
+
+  <!-- Floating Ambient UI Overlays (Auto-fades on idle for wallpaper mode) -->
+  <div class="ui-container">
+    
+    <!-- Top-Left: Brand & Round Meta -->
+    <header class="glass-panel top-bar">
+      <div class="brand">
+        <div class="brand-icon"></div>
+        <span class="brand-title">Labyrinth Race</span>
+      </div>
+      <div class="meta-stats">
+        <span>Round: <b id="stat-round">#1</b></span>
+        <span>Grid: <b id="stat-dimensions">39 × 23</b></span>
+        <span>Target Dist: <b id="stat-distance">--</b></span>
+        <span><b id="stat-gpu" style="color: #00ff88; letter-spacing: 0.5px;">GPU Active</b></span>
+      </div>
+    </header>
+
+    <!-- Top-Right: Algorithm Leaderboard -->
+    <aside class="glass-panel leaderboard-panel">
+      <div class="panel-title">
+        <span>Active Algorithms</span>
+        <span style="font-size: 9px; opacity: 0.7;">LIVE STATS</span>
+      </div>
+      <div class="leaderboard-list" id="leaderboard-list">
+        <!-- Injected via JavaScript -->
+      </div>
+    </aside>
+
+    <!-- Center-Bottom: Next Maze Cooldown Banner -->
+    <div class="glass-panel status-banner" id="round-status-banner">
+      Next maze starting...
+    </div>
+
+    <!-- Bottom Center: Controls Toolbar -->
+    <nav class="glass-panel bottom-bar">
+      <button class="ctrl-btn primary" id="btn-new" title="Generate New Maze (R)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        </svg>
+        <span>New Maze</span>
+      </button>
+
+      <button class="ctrl-btn" id="btn-restart" title="Re-run Race on Current Maze">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 4v6h6"></path>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+        <span>Re-race</span>
+      </button>
+
+      <button class="ctrl-btn" id="btn-pause" title="Pause / Resume (Space)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+        </svg>
+      </button>
+
+      <div class="divider"></div>
+
+      <div class="ctrl-slider-group">
+        <span>Speed:</span>
+        <input type="range" id="speed-slider" min="1" max="25" value="4">
+        <span id="speed-value">4x</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <button class="ctrl-btn" id="btn-fullscreen" title="Fullscreen (F)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn" id="btn-settings" title="Settings Drawer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </nav>
+
+    <!-- Slide-over Settings Drawer -->
+    <aside class="glass-panel settings-drawer" id="settings-panel">
+      <div class="drawer-header">
+        <h3 class="drawer-title">Simulation Settings</h3>
+        <button class="close-btn" id="btn-close-settings">✕</button>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">Maze Generator</label>
+        <select class="setting-select" id="maze-algo-select">
+          <option value="spacefill">Hilbert Spacefill + Shortcuts (Varied Routes)</option>
+          <option value="backtracker">Recursive Backtracker (DFS)</option>
+          <option value="prims">Randomized Prim's (Bushy)</option>
+          <option value="kruskal">Randomized Kruskal's (Balanced)</option>
+          <option value="huntandkill">Hunt and Kill (Mixed)</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">Grid Size</label>
+        <select class="setting-select" id="maze-size-select">
+          <option value="small">Small (25 × 15)</option>
+          <option value="medium" selected>Medium (39 × 23)</option>
+          <option value="large">Large (55 × 33)</option>
+          <option value="dense">Ultra Dense (75 × 43)</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">Braid Factor (Loops & Alternate Paths)</label>
+        <div class="ctrl-slider-group" style="padding: 0;">
+          <input type="range" id="braid-slider" min="0" max="40" value="10">
+          <span id="braid-value">10%</span>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <div class="setting-label-row">
+          <label class="setting-label">Racing Algorithms</label>
+          <div class="quick-preset-btns">
+            <button class="mini-btn" id="btn-select-bi" title="Activate All Bi-Directional Solvers">⇄ Bi-Only</button>
+            <button class="mini-btn" id="btn-select-all" title="Select All Solvers">All</button>
+          </div>
+        </div>
+
+        <div class="algo-category-label">⇄ Bi-Directional Solvers (Dual-Wavefront)</div>
+        <div class="checkbox-list">
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-biastar" checked>
+            <span class="color-dot bi-dot" style="background: linear-gradient(135deg, #05ffa1, #00e5ff); box-shadow: 0 0 7px #05ffa1;"></span>
+            <span>Bidirectional A* (Heuristic Dual-Beam)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-bibfs" checked>
+            <span class="color-dot bi-dot" style="background: linear-gradient(135deg, #38bdf8, #818cf8); box-shadow: 0 0 7px #38bdf8;"></span>
+            <span>Bidirectional BFS (Dual Wavefront)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-bigreedy" checked>
+            <span class="color-dot bi-dot" style="background: linear-gradient(135deg, #ffb703, #ff5400); box-shadow: 0 0 7px #ffb703;"></span>
+            <span>Bidirectional Greedy (Laser Collision)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-bidijkstra">
+            <span class="color-dot bi-dot" style="background: linear-gradient(135deg, #c084fc, #f43f5e); box-shadow: 0 0 7px #c084fc;"></span>
+            <span>Bidirectional Dijkstra (Uniform Cost)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-bidfs" checked>
+            <span class="color-dot bi-dot" style="background: linear-gradient(135deg, #ff3366, #fb7185); box-shadow: 0 0 7px #ff3366;"></span>
+            <span>Bidirectional DFS (Lightning Tendrils)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-biswarm" checked>
+            <span class="color-dot bi-dot" style="background: linear-gradient(135deg, #06d6a0, #00b4d8); box-shadow: 0 0 7px #06d6a0;"></span>
+            <span>Bidirectional Swarm (Dynamic Attraction)</span>
+          </label>
+        </div>
+
+        <div class="algo-category-label" style="margin-top: 10px;">Classic Single-Direction Solvers</div>
+        <div class="checkbox-list">
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-astar">
+            <span class="color-dot" style="background: #00ff88; box-shadow: 0 0 6px #00ff88;"></span>
+            <span>A* Search (Heuristic)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-bfs">
+            <span class="color-dot" style="background: #00f0ff; box-shadow: 0 0 6px #00f0ff;"></span>
+            <span>Breadth-First (BFS)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-greedy">
+            <span class="color-dot" style="background: #ffb703; box-shadow: 0 0 6px #ffb703;"></span>
+            <span>Greedy Best-First</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-dijkstra">
+            <span class="color-dot" style="background: #a855f7; box-shadow: 0 0 6px #a855f7;"></span>
+            <span>Dijkstra's (Uniform Cost)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-dfs">
+            <span class="color-dot" style="background: #ff3366; box-shadow: 0 0 6px #ff3366;"></span>
+            <span>Depth-First (DFS)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="chk-wallfollower">
+            <span class="color-dot" style="background: #ec4899; box-shadow: 0 0 6px #ec4899;"></span>
+            <span>Wall Follower (Right-Hand)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="checkbox-row">
+          <input type="checkbox" id="chk-autoloop" checked>
+          <span>Auto-loop new mazes indefinitely</span>
+        </label>
+      </div>
+
+      <div class="shortcut-hints">
+        <div><kbd>Space</kbd> Pause / Resume</div>
+        <div><kbd>R</kbd> Generate new maze</div>
+        <div><kbd>F</kbd> Toggle Fullscreen</div>
+        <div><kbd>H</kbd> Hide / Show UI</div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/seed.js"></script>
+  <script src="js/maze.js"></script>
+  <script src="js/algorithms.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
