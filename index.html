@@ -101,21 +101,35 @@
       <div class="setting-group">
         <label class="setting-label">Maze Generator</label>
         <select class="setting-select" id="maze-algo-select">
+          <option value="random">Random (a new generator every round)</option>
           <option value="spacefill">Hilbert Spacefill + Shortcuts (Varied Routes)</option>
           <option value="backtracker">Recursive Backtracker (DFS)</option>
           <option value="prims">Randomized Prim's (Bushy)</option>
           <option value="kruskal">Randomized Kruskal's (Balanced)</option>
           <option value="huntandkill">Hunt and Kill (Mixed)</option>
+          <option value="wilson">Wilson's (Unbiased, Loop-Erased Walks)</option>
+          <option value="aldousbroder">Aldous-Broder (Unbiased Random Walk)</option>
+          <option value="growingtree">Growing Tree (Corridors + Branches)</option>
+          <option value="binarytree">Binary Tree (Diagonal Grain)</option>
+        </select>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">Grid Shape (Regular Polygons)</label>
+        <select class="setting-select" id="grid-shape-select">
+          <option value="square">Square (4 sides, 90°)</option>
+          <option value="hexagon">Hexagon (6 sides, 120°)</option>
+          <option value="triangle">Triangle (3 sides, 60°)</option>
         </select>
       </div>
 
       <div class="setting-group">
         <label class="setting-label">Grid Size</label>
         <select class="setting-select" id="maze-size-select">
-          <option value="small">Small (25 × 15)</option>
-          <option value="medium" selected>Medium (39 × 23)</option>
-          <option value="large">Large (55 × 33)</option>
-          <option value="dense">Ultra Dense (75 × 43)</option>
+          <option value="small">Small (~375 cells)</option>
+          <option value="medium" selected>Medium (~900 cells)</option>
+          <option value="large">Large (~1800 cells)</option>
+          <option value="dense">Ultra Dense (~3200 cells)</option>
         </select>
       </div>
 
@@ -207,6 +221,27 @@
 
       <div class="setting-group">
         <label class="checkbox-row">
+          <input type="checkbox" id="chk-terrain" checked>
+          <span>Weighted terrain (the cheapest path wins the race)</span>
+        </label>
+        <label class="setting-label" for="biome-select">Biome</label>
+        <select id="biome-select" class="setting-select">
+          <option value="random">Random (desert or tundra every round)</option>
+          <option value="desert">Desert (plain, sand, mud, water)</option>
+          <option value="tundra">Tundra (plain, snow, ice, water)</option>
+        </select>
+        <div class="terrain-legend" id="terrain-legend"></div>
+      </div>
+
+      <div class="setting-group">
+        <label class="checkbox-row">
+          <input type="checkbox" id="chk-generation" checked>
+          <span>Animate maze generation</span>
+        </label>
+      </div>
+
+      <div class="setting-group">
+        <label class="checkbox-row">
           <input type="checkbox" id="chk-autoloop" checked>
           <span>Auto-loop new mazes indefinitely</span>
         </label>
@@ -224,6 +259,7 @@
 
   <!-- Scripts -->
   <script src="js/seed.js"></script>
+  <script src="js/grid.js"></script>
   <script src="js/maze.js"></script>
   <script src="js/algorithms.js"></script>
   <script src="js/renderer.js"></script>

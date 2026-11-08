@@ -238,6 +238,7 @@ body.force-hide-ui .ui-container {
 .lb-metrics {
   display: flex;
   justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-muted);
@@ -567,4 +568,32 @@ body.force-hide-ui .ui-container {
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #ffffff;
+}
+
+/* Terrain key in the settings drawer */
+.terrain-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 8px 0 0 26px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.terrain-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.terrain-key i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.terrain-key b {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
 }

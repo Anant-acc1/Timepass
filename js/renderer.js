@@ -7,6 +7,9 @@
  *    child cell, with a translucent tinted block on every visited cell
  *  - when a solver reaches the exit, its route is drawn once in that solver's colour
  *  - when a round ends the city is erased newest-first (the reverse of growth)
+ *  - cells are regular polygons (squares, hexagons or triangles); the maze walls are drawn
+ *    faintly and are knocked down one by one as the generation animation replays
+ *  - weighted terrain (sand, mud, water) tints the cells it covers
  *
  * Performance:
  *  - the black field and passages live in a static base layer; finished roads are
@@ -22,6 +25,8 @@ const TARGET_FPS = 30;   // render cadence
 const TAU = Math.PI * 2;
 const PASSAGE_COLOR = 'rgba(255, 255, 255, 0.07)';
 const BLOCK_FRACTION = 0.6; // block size as a fraction of the cell
+const WALL_COLOR = 'rgba(255, 255, 255, 0.17)';
+const GEN_TAIL = 48;        // carve events highlighted behind the generation head
 
 function nowSeconds() {
   return (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
@@ -66,6 +71,21 @@ class MazeRenderer {
     // City layer: committed roads, blocks and winning routes (transparent)
     this.cityCanvas = document.createElement('canvas');
     this.cityCtx = this.cityCanvas.getContext('2d');
+    // Wall layer: standing maze walls (transparent). Only used while the maze is being
+    // generated; once complete it is merged into the base layer.
+    this.wallCanvas = document.createElement('canvas');
+    this.wallCtx = this.wallCanvas.getContext('2d');
+
+    this.unit = 10;                       // pixels per unit-space length (one polygon edge)
+    this.cellPx = null;                   // Float32Array: cell centres in pixels [x0, y0, x1, y1, ...]
+    this.polys = [];                      // per cell: Float32Array of polygon corners in pixels
+    this.layoutMaze = null;
+    this.genCount = 0;                    // carve events currently shown
+    this.genApplied = 0;                  // carve events already painted into the layers
+    this.generating = false;
+    this.genHue = 190;
+    this.painted = null;                  // Uint8Array: cells already filled in the base layer
+    this.wallsMerged = true;
 
     this.cityOps = [];                    // committed draw ops, in growth order
     this.solverProgress = new WeakMap();  // solver -> number of records already committed
@@ -94,16 +114,35 @@ class MazeRenderer {
     this.layoutDirty = true;
   }
 
-  computeLayout(cols, rows) {
+  /** Fits the maze's grid shape to the canvas and caches every cell's pixel geometry. */
+  computeLayout(maze) {
+    const geom = maze.geom;
+    const bounds = geom.bounds(maze.cols, maze.rows);
     const padding = Math.min(this.width, this.height) * 0.055;
-    const sizeX = (this.width - padding * 2) / cols;
-    const sizeY = (this.height - padding * 2) / rows;
-    this.cellSize = Math.max(6, Math.floor(Math.min(sizeX, sizeY)));
+    this.unit = Math.max(2, Math.min((this.width - padding * 2) / bounds.w, (this.height - padding * 2) / bounds.h));
 
-    this.offsetX = Math.floor((this.width - this.cellSize * cols) / 2);
-    this.offsetY = Math.floor((this.height - this.cellSize * rows) / 2);
+    this.offsetX = (this.width - bounds.w * this.unit) / 2;
+    this.offsetY = (this.height - bounds.h * this.unit) / 2;
+    this.cellSize = this.unit * geom.cellScale;
     this.roadWidth = Math.min(3, Math.max(1.5, this.cellSize * 0.1));
 
+    const n = maze.cells.length;
+    this.cellPx = new Float32Array(n * 2);
+    this.polys = new Array(n);
+    for (const cell of maze.cells) {
+      const i = cell.index;
+      this.cellPx[i * 2] = this.offsetX + cell.cx * this.unit;
+      this.cellPx[i * 2 + 1] = this.offsetY + cell.cy * this.unit;
+      const verts = geom.vertices(cell.col, cell.row);
+      const poly = new Float32Array(verts.length * 2);
+      verts.forEach((v, k) => {
+        poly[k * 2] = this.offsetX + v.x * this.unit;
+        poly[k * 2 + 1] = this.offsetY + v.y * this.unit;
+      });
+      this.polys[i] = poly;
+    }
+
+    this.layoutMaze = maze;
     this.layoutDirty = true;
   }
 
@@ -127,12 +166,45 @@ class MazeRenderer {
     return (solver.pal && solver.pal[side === 'backward' ? 'backward' : 'forward']) || FALLBACK_PALETTE;
   }
 
-  cellX(col) {
-    return this.offsetX + (col + 0.5) * this.cellSize;
+  /** Pixel position of a cell centre (by cell index). */
+  cx(index) {
+    return this.cellPx[index * 2];
   }
 
-  cellY(row) {
-    return this.offsetY + (row + 0.5) * this.cellSize;
+  cy(index) {
+    return this.cellPx[index * 2 + 1];
+  }
+
+  /** Points of the shrunken polygon drawn as a cell's "block", as a flat [x, y, ...] array. */
+  blockPoints(index) {
+    const poly = this.polys[index];
+    const ox = this.cellPx[index * 2];
+    const oy = this.cellPx[index * 2 + 1];
+    const out = new Array(poly.length);
+    for (let k = 0; k < poly.length; k += 2) {
+      out[k] = ox + (poly[k] - ox) * BLOCK_FRACTION;
+      out[k + 1] = oy + (poly[k + 1] - oy) * BLOCK_FRACTION;
+    }
+    return out;
+  }
+
+  /**
+   * Starts a new generation replay. With animate, the maze begins fully walled and the
+   * carve events are revealed as setGenCount() grows; otherwise the finished maze shows.
+   */
+  beginGeneration(maze, animate) {
+    this.generating = !!animate;
+    this.genCount = animate ? 0 : this.totalEvents(maze);
+    this.genHue = Math.random() * 360;
+    this.layoutDirty = true;
+  }
+
+  setGenCount(n) {
+    this.genCount = n;
+  }
+
+  totalEvents(maze) {
+    return maze.carveLog.length / 2;
   }
 
   /** Forget the city drawn for the current maze; the next render redraws from scratch. */
@@ -154,8 +226,11 @@ class MazeRenderer {
   render(maze, solvers) {
     const now = nowSeconds();
 
+    if (this.layoutMaze !== maze) this.computeLayout(maze);
     if (this.layoutDirty || this.builtFor !== maze) {
       this.rebuildLayers(maze);
+    } else if (this.genApplied < this.genCount) {
+      this.applyEvents(maze, this.genApplied, this.genCount);
     }
     if (this.phase === 'erasing') this.stepErase();
 
@@ -169,6 +244,7 @@ class MazeRenderer {
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.baseCanvas, 0, 0);
+    if (!this.wallsMerged) ctx.drawImage(this.wallCanvas, 0, 0);
     ctx.drawImage(this.cityCanvas, 0, 0);
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -184,10 +260,14 @@ class MazeRenderer {
         }
       }
     }
-    this.drawHubs(ctx, maze);
+    if (this.generating) this.drawGenerationHead(ctx, maze);
+    else this.drawHubs(ctx, maze);
   }
 
-  /** Rebuilds cached layers for a new maze or a new canvas size. */
+  /**
+   * Rebuilds cached layers for a new maze or a new canvas size. The maze starts fully
+   * walled and the carve events up to genCount are replayed onto it.
+   */
   rebuildLayers(maze) {
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -195,33 +275,38 @@ class MazeRenderer {
     this.baseCanvas.height = H;
     this.cityCanvas.width = W;
     this.cityCanvas.height = H;
+    this.wallCanvas.width = W;
+    this.wallCanvas.height = H;
 
     const b = this.baseCtx;
     b.setTransform(1, 0, 0, 1, 0, 0);
     b.fillStyle = '#000';
     b.fillRect(0, 0, W, H);
 
-    b.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    b.strokeStyle = PASSAGE_COLOR;
-    b.lineWidth = 1;
-    b.lineCap = 'round';
-    b.beginPath();
-    for (let r = 0; r < maze.rows; r++) {
-      for (let c = 0; c < maze.cols; c++) {
-        const cell = maze.grid[r][c];
-        const x = this.cellX(c);
-        const y = this.cellY(r);
-        if (!cell.walls.right && c + 1 < maze.cols) {
-          b.moveTo(x, y);
-          b.lineTo(this.cellX(c + 1), y);
-        }
-        if (!cell.walls.bottom && r + 1 < maze.rows) {
-          b.moveTo(x, y);
-          b.lineTo(x, this.cellY(r + 1));
-        }
+    // Every wall of the empty grid, drawn once per shared edge
+    const w = this.wallCtx;
+    w.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    w.strokeStyle = WALL_COLOR;
+    w.lineWidth = 1;
+    w.lineCap = 'butt';
+    w.beginPath();
+    for (const cell of maze.cells) {
+      const poly = this.polys[cell.index];
+      const n = cell.nbrs.length;
+      for (let d = 0; d < n; d++) {
+        const nb = cell.nbrs[d];
+        if (nb && nb.index < cell.index) continue; // the neighbour draws the shared edge
+        const k = ((d + 1) % n) * 2;
+        w.moveTo(poly[d * 2], poly[d * 2 + 1]);
+        w.lineTo(poly[k], poly[k + 1]);
       }
     }
-    b.stroke();
+    w.stroke();
+
+    this.painted = new Uint8Array(maze.cells.length);
+    this.genApplied = 0;
+    this.wallsMerged = false;
+    this.applyEvents(maze, 0, Math.min(this.genCount, this.totalEvents(maze)));
 
     this.cityCtx.setTransform(1, 0, 0, 1, 0, 0);
     this.cityCtx.clearRect(0, 0, W, H);
@@ -231,6 +316,108 @@ class MazeRenderer {
     this.phase = 'grow';
     this.builtFor = maze;
     this.layoutDirty = false;
+  }
+
+  /** Fills a cell in the base layer with its terrain tint (once). */
+  paintCell(maze, cell) {
+    if (this.painted[cell.index]) return;
+    this.painted[cell.index] = 1;
+    const b = this.baseCtx;
+    b.fillStyle = maze.terrains[maze.hasTerrain ? cell.terrain : 0].tint;
+    const poly = this.polys[cell.index];
+    b.beginPath();
+    b.moveTo(poly[0], poly[1]);
+    for (let k = 2; k < poly.length; k += 2) b.lineTo(poly[k], poly[k + 1]);
+    b.closePath();
+    b.fill();
+  }
+
+  /**
+   * Replays carve events [from, to): the wall between the two cells comes down, a faint
+   * passage joins their centres, and both cells light up with their terrain.
+   */
+  applyEvents(maze, from, to) {
+    if (to <= from) return;
+    const log = maze.carveLog;
+    const cells = maze.cells;
+    const b = this.baseCtx;
+    const w = this.wallCtx;
+    b.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    w.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+
+    b.strokeStyle = PASSAGE_COLOR;
+    b.lineWidth = 1;
+    b.lineCap = 'round';
+    b.beginPath();
+    w.globalCompositeOperation = 'destination-out';
+    w.strokeStyle = '#000';
+    w.lineWidth = 3;
+    w.lineCap = 'butt';
+    w.beginPath();
+
+    const inset = 1.2; // keep the erase clear of the wall ends so neighbouring walls survive
+    for (let e = from; e < to; e++) {
+      const a = cells[log[e * 2]];
+      const c = cells[log[e * 2 + 1]];
+      this.paintCell(maze, a);
+      this.paintCell(maze, c);
+
+      b.moveTo(this.cx(a.index), this.cy(a.index));
+      b.lineTo(this.cx(c.index), this.cy(c.index));
+
+      const d = maze.wallToward(a, c);
+      const poly = this.polys[a.index];
+      const k = ((d + 1) % a.nbrs.length) * 2;
+      let x1 = poly[d * 2], y1 = poly[d * 2 + 1];
+      let x2 = poly[k], y2 = poly[k + 1];
+      const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+      const ux = ((x2 - x1) / len) * inset;
+      const uy = ((y2 - y1) / len) * inset;
+      w.moveTo(x1 + ux, y1 + uy);
+      w.lineTo(x2 - ux, y2 - uy);
+    }
+    b.stroke();
+    w.stroke();
+    w.globalCompositeOperation = 'source-over';
+
+    this.genApplied = to;
+    if (to >= this.totalEvents(maze)) this.mergeWalls(maze);
+  }
+
+  /** Once generation is complete the remaining walls are flattened into the base layer. */
+  mergeWalls(maze) {
+    if (this.wallsMerged) return;
+    for (const cell of maze.cells) this.paintCell(maze, cell);
+    // paintCell fills over the base only; walls go on top afterwards
+    const b = this.baseCtx;
+    b.setTransform(1, 0, 0, 1, 0, 0);
+    b.drawImage(this.wallCanvas, 0, 0);
+    this.wallsMerged = true;
+  }
+
+  /** The carving head: a fading tail of the latest wall removals and a bright tip. */
+  drawGenerationHead(ctx, maze) {
+    const log = maze.carveLog;
+    const total = this.genApplied;
+    if (total <= 0) return;
+    const first = Math.max(0, total - GEN_TAIL);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = this.roadWidth * 1.4;
+    for (let e = first; e < total; e++) {
+      const t = (e - first + 1) / (total - first); // 0 old .. 1 newest
+      ctx.strokeStyle = `hsla(${this.genHue.toFixed(0)}, 100%, 65%, ${(t * t).toFixed(2)})`;
+      const a = log[e * 2];
+      const c = log[e * 2 + 1];
+      ctx.beginPath();
+      ctx.moveTo(this.cx(a), this.cy(a));
+      ctx.lineTo(this.cx(c), this.cy(c));
+      ctx.stroke();
+    }
+    const tip = log[(total - 1) * 2 + 1];
+    ctx.fillStyle = `hsl(${this.genHue.toFixed(0)}, 100%, 85%)`;
+    ctx.beginPath();
+    ctx.arc(this.cx(tip), this.cy(tip), Math.max(2, this.roadWidth * 1.6), 0, TAU);
+    ctx.fill();
   }
 
   /**
@@ -268,17 +455,16 @@ class MazeRenderer {
 
   commitRecord(solver, rec) {
     const pal = this.sidePalette(solver, rec.side);
-    const cx = this.cellX(rec.cell.col);
-    const cy = this.cellY(rec.cell.row);
+    const cx = this.cx(rec.cell.index);
+    const cy = this.cy(rec.cell.index);
 
     if (rec.parent) {
-      const s = this.cellSize * BLOCK_FRACTION;
       this.paintOps([
-        { type: 'block', x: cx - s / 2, y: cy - s / 2, s, color: pal.block },
+        { type: 'poly', pts: this.blockPoints(rec.cell.index), color: pal.block },
         {
           type: 'road',
-          x1: this.cellX(rec.parent.col),
-          y1: this.cellY(rec.parent.row),
+          x1: this.cx(rec.parent.index),
+          y1: this.cy(rec.parent.index),
           x2: cx,
           y2: cy,
           w: this.roadWidth,
@@ -292,7 +478,7 @@ class MazeRenderer {
 
   /** The winning route, drawn once in the finishing solver's own colour. */
   commitRoute(solver) {
-    const pts = solver.path.map((c) => ({ x: this.cellX(c.col), y: this.cellY(c.row) }));
+    const pts = solver.path.map((c) => ({ x: this.cx(c.index), y: this.cy(c.index) }));
     this.paintOps([{ type: 'route', pts, w: this.roadWidth * 2.6, color: solver.color }]);
   }
 
@@ -317,10 +503,20 @@ class MazeRenderer {
    * with an opaque fill, and roads and routes are widened slightly to cover antialiasing.
    */
   drawOp(ctx, op, erase) {
-    if (op.type === 'block') {
+    if (op.type === 'poly') {
+      const pts = op.pts;
       ctx.fillStyle = erase ? '#000' : op.color;
-      const pad = erase ? 1 : 0;
-      ctx.fillRect(op.x - pad, op.y - pad, op.s + pad * 2, op.s + pad * 2);
+      ctx.beginPath();
+      ctx.moveTo(pts[0], pts[1]);
+      for (let k = 2; k < pts.length; k += 2) ctx.lineTo(pts[k], pts[k + 1]);
+      ctx.closePath();
+      ctx.fill();
+      if (erase) {
+        // widen slightly so antialiased edges are fully removed
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
     } else if (op.type === 'road') {
       ctx.strokeStyle = op.color;
       ctx.lineWidth = erase ? op.w + 1 : op.w;
@@ -367,8 +563,8 @@ class MazeRenderer {
   drawInFlight(ctx, solver, rec, now) {
     const pal = this.sidePalette(solver, rec.side);
     const cs = this.cellSize;
-    const cx = this.cellX(rec.cell.col);
-    const cy = this.cellY(rec.cell.row);
+    const cx = this.cx(rec.cell.index);
+    const cy = this.cy(rec.cell.index);
     const p = easeOutCubic(clamp01((now - rec.birthTime) / this.growthDuration));
 
     if (!rec.parent) {
@@ -381,15 +577,23 @@ class MazeRenderer {
       return;
     }
 
-    const x1 = this.cellX(rec.parent.col);
-    const y1 = this.cellY(rec.parent.row);
+    const x1 = this.cx(rec.parent.index);
+    const y1 = this.cy(rec.parent.index);
     const tx = x1 + (cx - x1) * p;
     const ty = y1 + (cy - y1) * p;
 
-    const s = cs * BLOCK_FRACTION;
+    const poly = this.polys[rec.cell.index];
     ctx.globalAlpha = p;
     ctx.fillStyle = pal.block;
-    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+    ctx.beginPath();
+    for (let k = 0; k < poly.length; k += 2) {
+      const px = cx + (poly[k] - cx) * BLOCK_FRACTION;
+      const py = cy + (poly[k + 1] - cy) * BLOCK_FRACTION;
+      if (k === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
 
     ctx.globalAlpha = 1;
     ctx.strokeStyle = pal.road;
@@ -403,12 +607,12 @@ class MazeRenderer {
   /** Solid leading dot at the tip of a solver's city. */
   drawHead(ctx, solver, rec, now) {
     const pal = this.sidePalette(solver, rec.side);
-    let x = this.cellX(rec.cell.col);
-    let y = this.cellY(rec.cell.row);
+    let x = this.cx(rec.cell.index);
+    let y = this.cy(rec.cell.index);
     if (rec.parent) {
       const p = easeOutCubic(clamp01((now - rec.birthTime) / this.growthDuration));
-      const x1 = this.cellX(rec.parent.col);
-      const y1 = this.cellY(rec.parent.row);
+      const x1 = this.cx(rec.parent.index);
+      const y1 = this.cy(rec.parent.index);
       x = x1 + (x - x1) * p;
       y = y1 + (y - y1) * p;
     }
@@ -426,7 +630,8 @@ class MazeRenderer {
     for (const cell of [maze.start, maze.exit]) {
       if (!cell) continue;
       ctx.beginPath();
-      ctx.arc(this.cellX(cell.col), this.cellY(cell.row), cs * 0.3, 0, TAU);
+      const i = cell.row * maze.cols + cell.col;
+      ctx.arc(this.cx(i), this.cy(i), cs * 0.3, 0, TAU);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;

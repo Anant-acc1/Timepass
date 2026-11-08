@@ -184,11 +184,11 @@ class BidirectionalAStarSolver extends MazeSolver {
   }
 
   hForward(cell) {
-    return Math.abs(cell.col - this.exit.col) + Math.abs(cell.row - this.exit.row);
+    return this.maze.dist(cell, this.exit);
   }
 
   hBackward(cell) {
-    return Math.abs(cell.col - this.start.col) + Math.abs(cell.row - this.start.row);
+    return this.maze.dist(cell, this.start);
   }
 
   step() {
@@ -208,7 +208,7 @@ class BidirectionalAStarSolver extends MazeSolver {
     const neighborsF = this.maze.getPassableNeighbors(currF);
     for (const n of neighborsF) {
       const nKey = this.key(n.col, n.row);
-      const tentG = currFG + 1;
+      const tentG = currFG + this.maze.edgeCost(currF, n);
       if (this.backwardVisited.has(nKey)) {
         this.recordVisited(n, currF, 'forward');
         this.reconstructBidirectionalPath(n);
@@ -233,7 +233,7 @@ class BidirectionalAStarSolver extends MazeSolver {
     const neighborsB = this.maze.getPassableNeighbors(currB);
     for (const n of neighborsB) {
       const nKey = this.key(n.col, n.row);
-      const tentG = currBG + 1;
+      const tentG = currBG + this.maze.edgeCost(currB, n);
       if (this.forwardVisited.has(nKey)) {
         this.recordVisited(n, currB, 'backward');
         this.reconstructBidirectionalPath(n);
@@ -373,11 +373,11 @@ class BidirectionalGreedySolver extends MazeSolver {
   }
 
   hForward(cell) {
-    return Math.hypot(cell.col - this.exit.col, cell.row - this.exit.row);
+    return this.maze.euclid(cell, this.exit);
   }
 
   hBackward(cell) {
-    return Math.hypot(cell.col - this.start.col, cell.row - this.start.row);
+    return this.maze.euclid(cell, this.start);
   }
 
   step() {
@@ -483,7 +483,7 @@ class BidirectionalDijkstraSolver extends MazeSolver {
 
     for (const n of this.maze.getPassableNeighbors(currF)) {
       const nKey = this.key(n.col, n.row);
-      const newDist = currFDist + 1;
+      const newDist = currFDist + this.maze.edgeCost(currF, n);
       if (this.backwardVisited.has(nKey)) {
         this.recordVisited(n, currF, 'forward');
         this.reconstructBidirectionalPath(n);
@@ -504,7 +504,7 @@ class BidirectionalDijkstraSolver extends MazeSolver {
 
     for (const n of this.maze.getPassableNeighbors(currB)) {
       const nKey = this.key(n.col, n.row);
-      const newDist = currBDist + 1;
+      const newDist = currBDist + this.maze.edgeCost(currB, n);
       if (this.forwardVisited.has(nKey)) {
         this.recordVisited(n, currB, 'backward');
         this.reconstructBidirectionalPath(n);
@@ -640,8 +640,9 @@ class BidirectionalSwarmSolver extends MazeSolver {
     this.recordVisited(sCell, null, 'forward');
     this.recordVisited(eCell, null, 'backward');
 
-    this.forwardCentroid = { col: start.col, row: start.row };
-    this.backwardCentroid = { col: exit.col, row: exit.row };
+    // Centroids live in unit space (cell centres), so every grid shape measures distance alike
+    this.forwardCentroid = { x: sCell.cx, y: sCell.cy };
+    this.backwardCentroid = { x: eCell.cx, y: eCell.cy };
 
     this.forwardPQ.enqueue(sCell, 0);
     this.backwardPQ.enqueue(eCell, 0);
@@ -672,11 +673,11 @@ class BidirectionalSwarmSolver extends MazeSolver {
       }
       if (!this.forwardVisited.has(nKey)) {
         this.recordVisited(n, currF, 'forward');
-        const distToBack = Math.hypot(n.col - this.backwardCentroid.col, n.row - this.backwardCentroid.row);
+        const distToBack = Math.hypot(n.cx - this.backwardCentroid.x, n.cy - this.backwardCentroid.y);
         this.forwardPQ.enqueue(n, distToBack);
         this.forwardCentroid = {
-          col: (this.forwardCentroid.col + n.col) / 2,
-          row: (this.forwardCentroid.row + n.row) / 2
+          x: (this.forwardCentroid.x + n.cx) / 2,
+          y: (this.forwardCentroid.y + n.cy) / 2
         };
       }
     }
@@ -694,11 +695,11 @@ class BidirectionalSwarmSolver extends MazeSolver {
       }
       if (!this.backwardVisited.has(nKey)) {
         this.recordVisited(n, currB, 'backward');
-        const distToFwd = Math.hypot(n.col - this.forwardCentroid.col, n.row - this.forwardCentroid.row);
+        const distToFwd = Math.hypot(n.cx - this.forwardCentroid.x, n.cy - this.forwardCentroid.y);
         this.backwardPQ.enqueue(n, distToFwd);
         this.backwardCentroid = {
-          col: (this.backwardCentroid.col + n.col) / 2,
-          row: (this.backwardCentroid.row + n.row) / 2
+          x: (this.backwardCentroid.x + n.cx) / 2,
+          y: (this.backwardCentroid.y + n.cy) / 2
         };
       }
     }
@@ -715,7 +716,7 @@ class BidirectionalSwarmSolver extends MazeSolver {
    ============================================================ */
 
 /**
- * 7. A* Search (Manhattan Heuristic)
+ * 7. A* Search (grid-distance heuristic)
  */
 class AStarSolver extends MazeSolver {
   constructor(maze, start, exit) {
@@ -738,7 +739,7 @@ class AStarSolver extends MazeSolver {
   }
 
   heuristic(cell) {
-    return Math.abs(cell.col - this.exit.col) + Math.abs(cell.row - this.exit.row);
+    return this.maze.dist(cell, this.exit);
   }
 
   step() {
@@ -765,7 +766,7 @@ class AStarSolver extends MazeSolver {
     const neighbors = this.maze.getPassableNeighbors(current);
     for (const n of neighbors) {
       const nKey = this.key(n.col, n.row);
-      const tentativeG = currentG + 1;
+      const tentativeG = currentG + this.maze.edgeCost(current, n);
 
       if (!this.gScore.has(nKey) || tentativeG < this.gScore.get(nKey)) {
         this.gScore.set(nKey, tentativeG);
@@ -904,7 +905,7 @@ class GreedySolver extends MazeSolver {
   }
 
   heuristic(cell) {
-    return Math.hypot(cell.col - this.exit.col, cell.row - this.exit.row);
+    return this.maze.euclid(cell, this.exit);
   }
 
   step() {
@@ -985,7 +986,7 @@ class DijkstraSolver extends MazeSolver {
     const neighbors = this.maze.getPassableNeighbors(current);
     for (const n of neighbors) {
       const nKey = this.key(n.col, n.row);
-      const newDist = currDist + 1;
+      const newDist = currDist + this.maze.edgeCost(current, n);
       if (!this.dist.has(nKey) || newDist < this.dist.get(nKey)) {
         this.dist.set(nKey, newDist);
         this.recordVisited(n, current, 'forward');
@@ -1011,37 +1012,12 @@ class WallFollowerSolver extends MazeSolver {
     });
 
     this.current = maze.getCell(start.col, start.row);
-    this.facing = 'right';
+    // The wall of the current cell we just came through. Start as if entering from wall 0.
+    this.entry = 0;
     this.recordVisited(this.current, null, 'forward');
     this.frontier = [this.current];
     this.maxSteps = maze.cols * maze.rows * 5;
     this.agentTrail = [this.current];
-  }
-
-  getTurnRight(dir) {
-    const order = ['up', 'right', 'down', 'left'];
-    return order[(order.indexOf(dir) + 1) % 4];
-  }
-
-  getTurnLeft(dir) {
-    const order = ['up', 'right', 'down', 'left'];
-    return order[(order.indexOf(dir) + 3) % 4];
-  }
-
-  canMove(cell, dir) {
-    if (dir === 'up') return !cell.walls.top;
-    if (dir === 'right') return !cell.walls.right;
-    if (dir === 'down') return !cell.walls.bottom;
-    if (dir === 'left') return !cell.walls.left;
-    return false;
-  }
-
-  getNextCell(cell, dir) {
-    if (dir === 'up') return this.maze.getCell(cell.col, cell.row - 1);
-    if (dir === 'right') return this.maze.getCell(cell.col + 1, cell.row);
-    if (dir === 'down') return this.maze.getCell(cell.col, cell.row + 1);
-    if (dir === 'left') return this.maze.getCell(cell.col - 1, cell.row);
-    return null;
   }
 
   step() {
@@ -1061,27 +1037,22 @@ class WallFollowerSolver extends MazeSolver {
       return this.status;
     }
 
-    const rightDir = this.getTurnRight(this.facing);
-    const straightDir = this.facing;
-    const leftDir = this.getTurnLeft(this.facing);
-    const backDir = this.getTurnRight(rightDir);
-
-    const candidates = [rightDir, straightDir, leftDir, backDir];
-
-    for (const dir of candidates) {
-      if (this.canMove(this.current, dir)) {
-        const nextCell = this.getNextCell(this.current, dir);
-        if (nextCell) {
-          const prev = this.current;
-          this.facing = dir;
-          this.current = nextCell;
-          const k = this.key(nextCell.col, nextCell.row);
-          if (!this.visited.has(k)) {
-            this.recordVisited(nextCell, prev, 'forward');
-          }
-          this.agentTrail.push(nextCell);
-          break;
+    // Right-hand rule on any polygon: sweep counter-clockwise from the wall we entered by.
+    // That tries the sharpest right turn first, then straighter, and finally turns back.
+    const cell = this.current;
+    const n = cell.walls.length;
+    const cw = this.maze.geom.cwStep(cell.col, cell.row);
+    for (let k = 1; k <= n; k++) {
+      const d = (((this.entry - k * cw) % n) + n) % n;
+      const next = cell.nbrs[d];
+      if (!cell.walls[d] && next) {
+        this.entry = cell.back[d];
+        this.current = next;
+        if (!this.visited.has(this.key(next.col, next.row))) {
+          this.recordVisited(next, cell, 'forward');
         }
+        this.agentTrail.push(next);
+        break;
       }
     }
 
